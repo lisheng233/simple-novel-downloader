@@ -104,6 +104,9 @@ jobs:
           - os: ubuntu-latest
             artifact_name: novel-merger-linux
             asset_name: novel-merger-linux
+          - os: macos-latest
+            artifact_name: novel-merger-macos
+            asset_name: novel-merger-macos
     
     steps:
       - name: Checkout code
@@ -145,6 +148,17 @@ jobs:
             --noconfirm \
             merger.py
       
+      - name: Build Merger with PyInstaller (Linux)
+        if: matrix.os == 'macos-latest'
+        run: |
+          pyinstaller --onefile \
+            --name "novel-merger-linux" \
+            --add-data "README.md:." \
+            --add-data "LICENSE:." \
+            --console \
+            --clean \
+            --noconfirm \
+            merger.py
       - name: List dist directory
         run: ls dist/
       
