@@ -54,7 +54,7 @@ jobs:
             --console `
             --clean `
             --noconfirm `
-            dl2.py
+            downloader.py
       
       - name: Build with PyInstaller (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -66,7 +66,7 @@ jobs:
             --console \
             --clean \
             --noconfirm \
-            dl2.py
+            downloader.py
       
       - name: Build with PyInstaller (macOS)
         if: matrix.os == 'macos-latest'
@@ -78,7 +78,7 @@ jobs:
             --console \
             --clean \
             --noconfirm \
-            dl2.py
+            downloader.py
       
       - name: List dist directory
         run: ls -la dist/
