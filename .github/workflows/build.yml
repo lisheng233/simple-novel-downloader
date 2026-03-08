@@ -22,9 +22,9 @@ jobs:
             artifact_name: novel-downloader-linux
             asset_name: novel-downloader-linux
           # 如果需要macOS版本，取消下面的注释
-          # - os: macos-latest
-          #   artifact_name: novel-downloader-macos
-          #   asset_name: novel-downloader-macos
+          - os: macos-latest
+            artifact_name: novel-downloader-macos
+            asset_name: novel-downloader-macos
     
     steps:
       - name: Checkout code
@@ -81,7 +81,7 @@ jobs:
             downloader.py
       
       - name: List dist directory
-        run: ls -la dist/
+        run: ls dist/
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -146,7 +146,7 @@ jobs:
             merger.py
       
       - name: List dist directory
-        run: ls -la dist/
+        run: ls dist/
       
       - name: Upload merger artifact
         uses: actions/upload-artifact@v4
