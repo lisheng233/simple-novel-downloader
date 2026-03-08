@@ -152,7 +152,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           pyinstaller --onefile \
-            --name "novel-merger-linux" \
+            --name "novel-merger-macos" \
             --add-data "README.md:." \
             --add-data "LICENSE:." \
             --console \
