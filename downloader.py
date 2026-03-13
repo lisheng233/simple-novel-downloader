@@ -8,10 +8,32 @@ from urllib.parse import urljoin, urlparse
 import re
 import random
 import json
-import hashlib
 
+def wait(test_url):
+    """
+    等待网络恢复正常的函数
+    通过持续尝试访问目标网站来判断网络是否恢复
+    """
+    max_wait_time = 3600  # 最大等待时间：1小时
+    check_interval = 10   # 检查间隔：10秒
+    start_time = time.time()
+    
+    while time.time() - start_time < max_wait_time:
+        try:
+            # 尝试发送HEAD请求（比GET更轻量）
+            response = requests.head(test_url, timeout=8)
+            if response.status_code in [200]:
+                print("网络已就位...")
+                return True
+        except requests.exceptions.RequestException as e:
+            # 网络仍然异常，继续等待
+            pass
+        time.sleep(check_interval)
+    
+    print("等待超时，网络仍未恢复")
+    return False
 class NovelDownloader:
-    def __init__(self, base_url, novel_name, max_workers=5, max_pages=200, use_cache=True):
+    def __init__(self, base_url, novel_name, max_workers=5, max_pages=100, use_cache=True,datas=dict()):
         """
         初始化小说下载器
         
@@ -29,53 +51,10 @@ class NovelDownloader:
         self.use_cache = use_cache  # 是否使用缓存
         self.chapter_queue = queue.Queue()  # 章节队列
         self.result_queue = queue.Queue()   # 结果队列
-        
+        self.datas=datas
+        self.visited=[]
         # 丰富的User-Agent列表（比线程数多）
-        self.user_agents = [
-            # Windows Chrome 系列
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.54 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36',
-            
-            # Windows Edge 系列
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36 Edg/92.0.902.62',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36 Edg/93.0.961.38',
-            
-            # Windows Firefox 系列
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:92.0) Gecko/20100101 Firefox/92.0',
-            
-            # macOS Safari 系列
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15',
-            
-            # macOS Chrome 系列
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36',
-            
-            # Linux Chrome 系列
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-            
-            # Linux Firefox 系列
-            'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0',
-            'Mozilla/5.0 (X11; Fedora; Linux x86_64; rv:90.0) Gecko/20100101 Firefox/90.0',
-            
-            # 移动端 User-Agent
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
-            'Mozilla/5.0 (iPad; CPU OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-            'Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
-            'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.115 Mobile Safari/537.36',
-        ]
+        self.user_agents = self.datas['user_agents']
         
         # 初始化session但不设置固定的UA
         self.session = requests.Session()
@@ -106,16 +85,10 @@ class NovelDownloader:
     
     def get_cache_path(self, url):
         """根据URL生成缓存文件路径"""
-        # 对URL进行哈希处理，避免文件名过长
-        #url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()
-        # 提取URL中的路径部分作为可读标识
         parsed = urlparse(url)
         path_part = parsed.path.replace('/', '_').strip('_')
-        #if len(path_part) > 50:
-            #path_part = path_part[:50]
-        # 组合文件名：可读部分_哈希值.html
         filename = f"{path_part}.html"
-        return os.path.join(self.cache_dir, filename)
+        return os.path.join(self.cache_dir, filename.replace('.html.html','.html'))
     
     def load_from_cache(self, url):
         """从缓存加载页面内容"""
@@ -142,7 +115,6 @@ class NovelDownloader:
         try:
             with open(cache_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            # print(f"已缓存: {url}")
         except Exception as e:
             print(f"保存缓存失败 {cache_path}: {e}")
     
@@ -223,9 +195,6 @@ class NovelDownloader:
                 
                 # 更新统计
                 self.update_ua_stats(current_ua)
-                
-                #print(f"正在访问: {url} (UA: {current_ua[:50]}...)")
-                
                 # 添加随机延迟，避免请求过快
                 time.sleep(random.uniform(0.5, 1))
                 
@@ -234,7 +203,6 @@ class NovelDownloader:
                 
                 # 检查响应状态
                 if response.status_code == 200:
-                    #print(f"页面大小: {len(response.text)} 字符")
                     content = response.text
                     
                     # 保存到缓存
@@ -245,9 +213,7 @@ class NovelDownloader:
                 elif response.status_code == 403:
                     print(f"被拒绝访问 (403)，尝试更换UA... 第{attempt + 1}次")
                 elif response.status_code == 429:
-                    wait_time = random.uniform(3, 8)
-                    print(f"请求过于频繁 (429)，等待 {wait_time:.1f} 秒后重试...")
-                    time.sleep(wait_time)
+                    wait(url)
                 else:
                     print(f"HTTP错误: {response.status_code}，第{attempt + 1}次")
                 
@@ -267,54 +233,6 @@ class NovelDownloader:
         print(f"所有重试都失败: {url}")
         return None
     
-    def debug_page_structure(self, html_content):
-        """
-        调试页面结构，打印可能的章节链接
-        """
-        return
-        # 原有的调试代码保持不变
-        soup = BeautifulSoup(html_content, 'html.parser')
-        
-        print("\n=== 页面调试信息 ===")
-        
-        # 打印所有链接
-        all_links = soup.find_all('a')
-        print(f"页面中共有 {len(all_links)} 个链接")
-        
-        # 查找可能的章节容器
-        possible_containers = [
-            soup.find('div', id='list'),
-            soup.find('div', class_='listmain'),
-            soup.find('div', class_='chapter-list'),
-            soup.find('ul', class_='chapter'),
-            soup.find('div', id='chapter-list'),
-            soup.find('div', class_='book-list'),
-            soup.find('div', id='readerlists'),
-        ]
-        
-        print("\n可能的章节容器:")
-        for container in possible_containers:
-            if container:
-                print(f"找到容器: {container.name} - class/id: {container.get('class', container.get('id', '无'))}")
-                # 打印容器中的前5个链接
-                links = container.find_all('a')
-                print(f"  该容器中有 {len(links)} 个链接")
-                
-        # 查找下一页链接（目录分页）
-        next_selectors = [
-            soup.find('a', string=re.compile(r'下一页|下页|next|>|下—页')),
-            soup.find('a', class_='next'),
-            soup.find('a', id='next'),
-            soup.find('a', rel='next'),
-        ]
-        
-        print("\n下一页链接（目录分页）:")
-        for selector in next_selectors:
-            if selector:
-                print(f"找到: {selector.get_text()} -> {selector.get('href', '')}")
-        
-        print("===================\n")
-    
     def parse_chapter_list(self, html_content):
         """
         解析目录页面，获取所有章节链接
@@ -323,32 +241,8 @@ class NovelDownloader:
         soup = BeautifulSoup(html_content, 'html.parser')
         chapters = []
         
-        # 首先调试页面结构
-        self.debug_page_structure(html_content)
-        
         # 扩展的选择器列表
-        selectors = [
-            # 常见的小说目录选择器
-            '#list dd a',
-            '#list a',
-            '.listmain dd a',
-            '.listmain a',
-            '.chapter-list dd a',
-            '.chapter-list a',
-            '.chapter a',
-            '.book-list a',
-            '#readerlists a',
-            '.catalog a',
-            '.volume a',
-            'ul.chapter li a',
-            '.chapterlist a',
-            '.dir-list a',
-            '.novel-list a',
-            '.article-list a',
-            '.text-list a',
-            '.main-content a',
-            '.content a',
-        ]
+        selectors = self.datas['selectors_column']
         
         # 如果上面的选择器都没找到，尝试查找所有链接
         found_chapters = False
@@ -367,7 +261,7 @@ class NovelDownloader:
                         # 过滤掉非章节链接
                         if title and len(title) < 50:
                             # 检查是否像是章节标题（包含第、章等关键词）
-                            if (any(key in title for key in ['第', '章', '节', '卷',"番外","结局"]) or re.match(r'\d+(.|)',title)) or not found_chapters:
+                            if (any(key in title for key in ['第', '章', '节', '卷',"番外","结局"]) or re.match(r'\d+(.|)',title) and not '最新章节' in title) or not found_chapters:
                                 chapters.append({
                                     'title': title,
                                     'url': full_url
@@ -388,7 +282,7 @@ class NovelDownloader:
                 if href and text and len(text) < 50 and len(text) > 2:
                     # 检查是否包含常见的小说关键词
                     novel_keywords = ['第', '章', '节', '卷', '序', '引子',"结局","番外", '楔子', '后记', '尾声']
-                    if any(keyword in text for keyword in novel_keywords) or re.match(r'\d+(.|)',text):
+                    if any(keyword in text for keyword in novel_keywords) or re.match(r'\d+(.|)',text) and not '最新章节' in text:
                         full_url = urljoin(self.base_url, href)
                         chapters.append({
                             'title': text,
@@ -405,23 +299,7 @@ class NovelDownloader:
         soup = BeautifulSoup(html_content, 'html.parser')
         
         # 扩展下一页选择器
-        next_patterns = [
-            # 常见的下一页选择器
-            '.next',
-            '#next',
-            '.pagination .next',
-            'a:contains("下一页")',
-            'a:contains("下—页")',
-            'a:contains("下页")',
-            'a:contains(">")',
-            'a:contains("»")',
-            'a.next-page',
-            '.page-next',
-            '.paginator a:last-child',
-            '.pager a:last-child',
-            'a[rel="next"]',
-            'link[rel="next"]',
-        ]
+        next_patterns = self.datas['next_page_patterns']
         
         for pattern in next_patterns:
             # 处理:contains选择器的警告
@@ -432,13 +310,15 @@ class NovelDownloader:
                     if text_to_find in a.get_text():
                         next_url = a.get('href')
                         if next_url:
+                            print(pattern)
                             return urljoin(current_url, next_url)
             else:
-                next_link = soup.select_one(pattern)
-                if next_link and next_link.get('href'):
-                    next_url = urljoin(current_url, next_link.get('href'))
-                    if next_url != current_url:
-                        return next_url
+                next_links = soup.select(pattern)
+                for next_link in next_links:
+                    if next_link and next_link.get('href'):
+                        next_url = urljoin(current_url, next_link.get('href'))
+                        if next_url != current_url and not next_url in self.visited:
+                            return next_url
         
         return None
     
@@ -450,27 +330,7 @@ class NovelDownloader:
         soup = BeautifulSoup(html_content, 'html.parser')
         
         # 章节内下一页的选择器
-        chapter_next_patterns = [
-            # 常见的章节内下一页选择器
-            '.next',
-            '#next',
-            '.page-next',
-            '.next-page',
-            '.bottem1 a:contains("下一页")',
-            '.pagebar a:contains("下一页")',
-            '.bottem1 a:contains("下—页")',
-            '.pagebar a:contains("下—页")',
-            '.content_next a',
-            '.pagination a:contains("下一页")',
-            '.pagination a:contains("下—页")',
-            'a:contains("下页")',
-            'a:contains("下一页")',
-            'a:contains(">>")',
-            'a:contains("»")',
-            # 有些网站用数字链接
-            'a:contains("下—页")',
-            'a[rel="next"]',
-        ]
+        chapter_next_patterns = self.datas['chapter_next_patterns']
         
         # 先尝试查找特定选择器
         for pattern in chapter_next_patterns:
@@ -554,7 +414,7 @@ class NovelDownloader:
                 break
             
             all_chapters.extend(chapters)
-            
+            self.visited.append(current_url)
             # 检查是否有下一页
             next_url = self.parse_next_page(html, current_url)
             if next_url:
@@ -726,20 +586,7 @@ class NovelDownloader:
             content = re.sub(r'\s+', '\n', content.strip())
         
         # 移除常见的广告和导航文本
-        ad_patterns = [
-            r'本章未完，请点击下一页继续阅读',
-            r'手机阅读本章',
-            r'请记住本书首发域名',
-            r'天才一秒记住',
-            r'推荐阅读',
-            r'最新章节',
-            r'最新章节全文阅读',
-            r'温馨提示：',
-            r'如果您喜欢，',
-            r'求收藏',
-            r'求推荐',
-            r'第.*?章'
-        ]
+        ad_patterns = self.datas['ad_patterns']
         
         for pattern in ad_patterns:
             content = re.sub(pattern, '', content)
@@ -849,7 +696,7 @@ class NovelDownloader:
                 ct=''
                 cht=chapter['content']
                 for j in cht.replace('\r\n','\n').replace('\r','\n').split('\n'):
-                    if not j in ("首页","下一章","下一页","关灯","护眼","上一页","上一章","中","小","字体","字体：大","大","返回","返回目录","加入书签","书架","|","阅读记录","下—章","下—页","上—章","上—页","^.^，请点击下一页继续阅读，后面更精彩！","尊贵特权，7天免广告阅读特权卡，所有注册用户均可免费领取！！","小主子，这个章节后面还有哦"):
+                    if not j in self.datas['replace']:
                         ct+=j+'\n'
                 f.write(f"{chapter['title']}\n\n")
                 f.write(f"来源: {chapter['url']}\n\n")
@@ -930,7 +777,7 @@ class NovelDownloader:
         chapters = self.crawl_chapter_list()
         
         if not chapters:
-            print("\n❌ 未找到任何章节，请检查：")
+            print("\n未找到任何章节，请检查：")
             print("1. 网站URL是否正确")
             print("2. 网站是否需要登录")
             print("3. 网站是否有反爬虫机制")
@@ -944,7 +791,7 @@ class NovelDownloader:
             if not self.is_chapter_downloaded(chapter['url']):
                 chapters_to_download.append(chapter)
         
-        print(f"\n✅ 找到 {len(chapters)} 个章节，其中 {len(chapters_to_download)} 个未下载")
+        print(f"\n找到 {len(chapters)} 个章节，其中 {len(chapters_to_download)} 个未下载")
         
         if len(chapters_to_download) == 0:
             print("所有章节都已下载完成！")
@@ -995,54 +842,3 @@ class NovelDownloader:
         print(f"保存位置: {os.path.abspath(self.save_dir)}")
         print(f"缓存位置: {os.path.abspath(self.cache_dir)}")
         print(f"{'='*40}")
-
-def main():
-    # 使用示例 - 请替换为实际的小说目录页URL
-    print("小说下载器")
-    print("="*40)
-    
-    # 让用户输入URL
-    novel_url = input("请输入小说目录页URL: ").strip()
-    novel_name = input("请输入小说名称: ").strip()
-    
-    if not novel_url or not novel_name:
-        print("URL和小说名称不能为空！")
-        return
-    
-    # 可选：设置线程数
-    try:
-        workers = int(input("请输入下载线程数(默认5): ") or "5")
-        if workers < 1:
-            workers = 5
-    except ValueError:
-        workers = 5
-    
-    # 设置目录页最大分页数
-    try:
-        max_pages_input = input("请输入目录页最大分页数(默认100，0表示不限制): ").strip()
-        if max_pages_input == "0":
-            max_pages = float('inf')  # 不限制
-            print("已设置为不限制目录页分页数")
-        else:
-            max_pages = int(max_pages_input or "100")
-            if max_pages < 1:
-                max_pages = 100
-    except ValueError:
-        max_pages = 100
-        print("输入无效，使用默认值100")
-    
-    # 是否使用缓存
-    use_cache_input = input("是否使用缓存功能(可以断点续传)(y/n，默认y): ").strip().lower()
-    use_cache = use_cache_input != 'n'
-    
-    # 是否清空缓存
-    clear_cache = False
-    if use_cache:
-        clear_cache_input = input("是否清空已有缓存(重新下载所有章节)(y/n，默认n): ").strip().lower()
-        clear_cache = clear_cache_input == 'y'
-    
-    downloader = NovelDownloader(novel_url, novel_name, max_workers=workers, max_pages=max_pages, use_cache=use_cache)
-    downloader.run(clear_cache_first=clear_cache)
-
-if __name__ == "__main__":
-    main()
