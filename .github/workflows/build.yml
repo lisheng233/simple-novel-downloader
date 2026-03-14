@@ -10,21 +10,57 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build on ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - os: windows-latest
-            artifact_name: novel-downloader-windows.exe
-            asset_name: novel-downloader-windows.exe
-          - os: ubuntu-latest
-            artifact_name: novel-downloader-linux
-            asset_name: novel-downloader-linux
-          # 如果需要macOS版本，取消下面的注释
-          - os: macos-latest
-            artifact_name: novel-downloader-macos
-            asset_name: novel-downloader-macos
+          # Windows 10 (64-bit)
+          - os: windows-2019
+            arch: x64
+            python_arch: x64
+            artifact_name: novel-downloader-windows-x64.exe
+            asset_name: novel-downloader-windows-x64.exe
+          # Windows 10 (32-bit)
+          - os: windows-2019
+            arch: x86
+            python_arch: x86
+            artifact_name: novel-downloader-windows-x86.exe
+            asset_name: novel-downloader-windows-x86.exe
+          
+          # Ubuntu 22.04 LTS (64-bit)
+          - os: ubuntu-22.04
+            arch: x64
+            python_arch: x64
+            artifact_name: novel-downloader-linux-x64
+            asset_name: novel-downloader-linux-x64
+          # Ubuntu 22.04 LTS (ARM64)
+          - os: ubuntu-22.04-arm64
+            arch: arm64
+            python_arch: arm64
+            artifact_name: novel-downloader-linux-arm64
+            asset_name: novel-downloader-linux-arm64
+          # Ubuntu 22.04 LTS (32-bit) - 注意：32-bit Linux需要特殊的运行环境
+          - os: ubuntu-22.04
+            arch: x86
+            python_arch: x86
+            artifact_name: novel-downloader-linux-x86
+            asset_name: novel-downloader-linux-x86
+          
+          # macOS (64-bit Intel)
+          - os: macos-13
+            arch: x64
+            python_arch: x64
+            artifact_name: novel-downloader-macos-x64
+            asset_name: novel-downloader-macos-x64
+          # macOS (ARM64/Apple Silicon)
+          - os: macos-14
+            arch: arm64
+            python_arch: arm64
+            artifact_name: novel-downloader-macos-arm64
+            asset_name: novel-downloader-macos-arm64
+          # macOS (32-bit) - 注意：现代macOS不支持32-bit，这里仅为完整性保留
+          # 实际上macOS从Catalina开始就不支持32-bit应用，所以这个构建可能会失败
     
     steps:
       - name: Checkout code
@@ -34,7 +70,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          architecture: 'x64'
+          architecture: ${{ matrix.python_arch }}
+      
+      - name: Install system dependencies (Linux x86)
+        if: matrix.os == 'ubuntu-22.04' && matrix.arch == 'x86'
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib libc6:i386 libstdc++6:i386
       
       - name: Install dependencies
         run: |
@@ -45,127 +88,49 @@ jobs:
           pip install ebooklib
       
       - name: Build with PyInstaller (Windows)
-        if: matrix.os == 'windows-latest'
+        if: startsWith(matrix.os, 'windows')
+        shell: pwsh
         run: |
           pyinstaller --onefile `
-            --name "novel-downloader-windows" `
+            --name "${{ matrix.artifact_name }}" `
             --add-data "README.md;." `
             --add-data "LICENSE;." `
             --console `
             --clean `
             --noconfirm `
-            downloader.py
+            main.py
       
       - name: Build with PyInstaller (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           pyinstaller --onefile \
-            --name "novel-downloader-linux" \
+            --name "${{ matrix.artifact_name }}" \
             --add-data "README.md:." \
             --add-data "LICENSE:." \
             --console \
             --clean \
             --noconfirm \
-            downloader.py
+            main.py
       
       - name: Build with PyInstaller (macOS)
-        if: matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos')
         run: |
           pyinstaller --onefile \
-            --name "novel-downloader-macos" \
+            --name "${{ matrix.artifact_name }}" \
             --add-data "README.md:." \
             --add-data "LICENSE:." \
             --console \
             --clean \
             --noconfirm \
-            downloader.py
+            main.py
       
       - name: List dist directory
-        run: ls dist/
+        run: ls -la dist/
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.artifact_name }}
-          if-no-files-found: error
-          retention-days: 30
-
-  # 创建合并的merger.py构建任务
-  build-merger:
-    name: Build Merger on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            artifact_name: novel-merger-windows.exe
-            asset_name: novel-merger-windows.exe
-          - os: ubuntu-latest
-            artifact_name: novel-merger-linux
-            asset_name: novel-merger-linux
-          - os: macos-latest
-            artifact_name: novel-merger-macos
-            asset_name: novel-merger-macos
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          architecture: 'x64'
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install ebooklib
-      
-      - name: Build Merger with PyInstaller (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          pyinstaller --onefile `
-            --name "novel-merger-windows" `
-            --add-data "README.md;." `
-            --add-data "LICENSE;." `
-            --console `
-            --clean `
-            --noconfirm `
-            merger.py
-      
-      - name: Build Merger with PyInstaller (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          pyinstaller --onefile \
-            --name "novel-merger-linux" \
-            --add-data "README.md:." \
-            --add-data "LICENSE:." \
-            --console \
-            --clean \
-            --noconfirm \
-            merger.py
-      
-      - name: Build Merger with PyInstaller (Linux)
-        if: matrix.os == 'macos-latest'
-        run: |
-          pyinstaller --onefile \
-            --name "novel-merger-macos" \
-            --add-data "README.md:." \
-            --add-data "LICENSE:." \
-            --console \
-            --clean \
-            --noconfirm \
-            merger.py
-      - name: List dist directory
-        run: ls dist/
-      
-      - name: Upload merger artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}*
           if-no-files-found: error
           retention-days: 30
