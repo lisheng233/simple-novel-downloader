@@ -1,4 +1,4 @@
-from downloader import NovelDownloader,wait
+from downloader import NovelDownloader
 from merger import NovelMerger
 import argparse,os,json
 default='''{
@@ -197,11 +197,12 @@ def interactive_mode():
     if use_cache:
         clear_cache_input = input("是否清空已有缓存(重新下载所有章节)(y/n，默认n): ").strip().lower()
         clear_cache = clear_cache_input == 'y'
-    wait(novel_url)
     
     downloader = NovelDownloader(novel_url, novel_name, max_workers=workers, max_pages=max_pages, use_cache=use_cache,datas=data)
     downloader.run(clear_cache_first=clear_cache)
-    
+    import gc
+    del downloader
+    gc.collect()
     
     
     # 创建合并器
@@ -303,6 +304,9 @@ def main():
     downloader = NovelDownloader(args.novel_url, args.novel_name, max_workers=workers, max_pages=max_pages, use_cache=args.use_cache,datas=data)
     downloader.run(clear_cache_first=clear_cache)
     
+    import gc
+    del downloader
+    gc.collect()
     
     # 创建合并器
     merger = NovelMerger(

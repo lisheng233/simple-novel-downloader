@@ -52,7 +52,7 @@ class NovelDownloader:
         self.chapter_queue = queue.Queue()  # 章节队列
         self.result_queue = queue.Queue()   # 结果队列
         self.datas=datas
-        self.visited=[]
+        self.visited=set()
         # 丰富的User-Agent列表（比线程数多）
         self.user_agents = self.datas['user_agents']
         
@@ -164,7 +164,7 @@ class NovelDownloader:
         with self.ua_lock:
             self.ua_counter[ua] = self.ua_counter.get(ua, 0) + 1
     
-    def get_page_content(self, url, encoding='utf-8', retry=3, use_cache=True):
+    def get_page_content(self, url, encoding='utf-8', retry=3, use_cache=True,chapter=False):
         """
         获取页面内容，支持重试、随机UA和缓存
         
@@ -196,7 +196,8 @@ class NovelDownloader:
                 # 更新统计
                 self.update_ua_stats(current_ua)
                 # 添加随机延迟，避免请求过快
-                time.sleep(random.uniform(0.5, 1))
+                if not chapter:
+                    time.sleep(random.uniform(0.5, 1))
                 
                 response = self.session.get(url, timeout=15)
                 response.encoding = encoding
@@ -400,7 +401,7 @@ class NovelDownloader:
         
         while current_url and page_num <= self.max_pages:
             print(f"\n正在获取第 {page_num} 页目录...")
-            html = self.get_page_content(current_url, use_cache=True)
+            html = self.get_page_content(current_url, use_cache=True,chapter=True)
             
             if not html:
                 break
@@ -414,7 +415,7 @@ class NovelDownloader:
                 break
             
             all_chapters.extend(chapters)
-            self.visited.append(current_url)
+            self.visited.add(current_url)
             # 检查是否有下一页
             next_url = self.parse_next_page(html, current_url)
             if next_url:
@@ -427,30 +428,30 @@ class NovelDownloader:
             page_num += 1
             
             # 避免请求过快
-            time.sleep(0.5)
+            time.sleep(0.3)
         
         # 去重
-        unique_chapters = []
+        self.unique_chapters = []
         seen_urls = set()
         for chapter in all_chapters:
             if chapter['url'] not in seen_urls:
                 seen_urls.add(chapter['url'])
-                unique_chapters.append(chapter)
+                self.unique_chapters.append(chapter)
         
         # 保存章节列表到缓存
         if self.use_cache:
             try:
                 with open(list_cache_file, 'w', encoding='utf-8') as f:
-                    json.dump(unique_chapters, f, ensure_ascii=False, indent=2)
+                    json.dump(self.unique_chapters, f, ensure_ascii=False, indent=2)
                 print(f"章节列表已缓存: {list_cache_file}")
             except Exception as e:
                 print(f"保存章节列表缓存失败: {e}")
         
-        print(f"\n总共找到 {len(unique_chapters)} 个唯一章节")
+        print(f"\n总共找到 {len(self.unique_chapters)} 个唯一章节")
         if page_num >= self.max_pages:
             print(f"提示: 已达到最大分页数限制 ({self.max_pages} 页)")
         
-        return unique_chapters
+        return self.unique_chapters
     
     def parse_chapter_content_with_pagination(self, start_url):
         """
@@ -465,7 +466,7 @@ class NovelDownloader:
         all_content = []
         current_url = start_url
         page_num = 1
-        max_chapter_pages = 10  # 防止无限循环，单章最大页数
+        max_chapter_pages = 6  # 防止无限循环，单章最大页数
         
         #print(f"开始获取章节内容（可能分页）: {start_url}")
         
@@ -494,7 +495,7 @@ class NovelDownloader:
             
             # 查找下一页
             next_url = self.parse_chapter_next_page(html, current_url)
-            if next_url and next_url != current_url:
+            if next_url and next_url != current_url and not next_url in self.unique_chapters:
                 current_url = next_url
                 page_num += 1
                 time.sleep(0.3)  # 避免请求过快
