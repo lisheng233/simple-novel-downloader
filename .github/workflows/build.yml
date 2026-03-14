@@ -84,9 +84,7 @@ jobs:
             --clean \
             --noconfirm \
             main.py
-        shell: |
-          ${{ startsWith(matrix.os, 'windows') && 'pwsh' || 'bash' }}
-      
+        
       - name: List dist directory
         run: ls -la dist/
       
