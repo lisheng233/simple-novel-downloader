@@ -1,12 +1,15 @@
 name: Build Executables
 
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
     inputs:
       version:
         description: '版本号'
         required: false
         default: 'manual-build'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -15,52 +18,47 @@ jobs:
     strategy:
       matrix:
         include:
-          # Windows 10 (64-bit)
+          # Windows (仅支持 x64，因为 x86 Python 3.12 可能不可用)
           - os: windows-2019
             arch: x64
-            python_arch: x64
+            python_version: '3.12'
             artifact_name: novel-downloader-windows-x64.exe
             asset_name: novel-downloader-windows-x64.exe
-          # Windows 10 (32-bit)
-          - os: windows-2019
-            arch: x86
-            python_arch: x86
-            artifact_name: novel-downloader-windows-x86.exe
-            asset_name: novel-downloader-windows-x86.exe
           
-          # Ubuntu 22.04 LTS (64-bit)
+          # Ubuntu 22.04 LTS
           - os: ubuntu-22.04
             arch: x64
-            python_arch: x64
+            python_version: '3.12'
             artifact_name: novel-downloader-linux-x64
             asset_name: novel-downloader-linux-x64
-          # Ubuntu 22.04 LTS (ARM64)
+          
+          # Ubuntu 22.04 ARM64
           - os: ubuntu-22.04-arm64
             arch: arm64
-            python_arch: arm64
+            python_version: '3.12'
             artifact_name: novel-downloader-linux-arm64
             asset_name: novel-downloader-linux-arm64
-          # Ubuntu 22.04 LTS (32-bit) - 注意：32-bit Linux需要特殊的运行环境
-          - os: ubuntu-22.04
-            arch: x86
-            python_arch: x86
-            artifact_name: novel-downloader-linux-x86
-            asset_name: novel-downloader-linux-x86
           
-          # macOS (64-bit Intel)
+          # Ubuntu 22.04 ARM32 - 使用 Python 3.10 以获得更好的兼容性
+          - os: ubuntu-22.04-arm64
+            arch: arm32
+            python_version: '3.10'
+            artifact_name: novel-downloader-linux-arm32
+            asset_name: novel-downloader-linux-arm32
+          
+          # macOS (Intel)
           - os: macos-13
             arch: x64
-            python_arch: x64
+            python_version: '3.12'
             artifact_name: novel-downloader-macos-x64
             asset_name: novel-downloader-macos-x64
-          # macOS (ARM64/Apple Silicon)
+          
+          # macOS (Apple Silicon)
           - os: macos-14
             arch: arm64
-            python_arch: arm64
+            python_version: '3.12'
             artifact_name: novel-downloader-macos-arm64
             asset_name: novel-downloader-macos-arm64
-          # macOS (32-bit) - 注意：现代macOS不支持32-bit，这里仅为完整性保留
-          # 实际上macOS从Catalina开始就不支持32-bit应用，所以这个构建可能会失败
     
     steps:
       - name: Checkout code
@@ -69,39 +67,14 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          architecture: ${{ matrix.python_arch }}
-      
-      - name: Install system dependencies (Linux x86)
-        if: matrix.os == 'ubuntu-22.04' && matrix.arch == 'x86'
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y gcc-multilib g++-multilib libc6:i386 libstdc++6:i386
-      
+          python-version: ${{ matrix.python_version }}
+          
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install requests beautifulsoup4
-          # 如果不需要EPUB功能，可以注释掉ebooklib
-          pip install ebooklib
+          pip install pyinstaller requests beautifulsoup4 ebooklib
       
-      - name: Build with PyInstaller (Windows)
-        if: startsWith(matrix.os, 'windows')
-        shell: pwsh
-        run: |
-          pyinstaller --onefile `
-            --name "${{ matrix.artifact_name }}" `
-            --add-data "README.md;." `
-            --add-data "LICENSE;." `
-            --console `
-            --clean `
-            --noconfirm `
-            main.py
-      
-      - name: Build with PyInstaller (Linux)
-        if: startsWith(matrix.os, 'ubuntu')
+      - name: Build executable
         run: |
           pyinstaller --onefile \
             --name "${{ matrix.artifact_name }}" \
@@ -111,18 +84,8 @@ jobs:
             --clean \
             --noconfirm \
             main.py
-      
-      - name: Build with PyInstaller (macOS)
-        if: startsWith(matrix.os, 'macos')
-        run: |
-          pyinstaller --onefile \
-            --name "${{ matrix.artifact_name }}" \
-            --add-data "README.md:." \
-            --add-data "LICENSE:." \
-            --console \
-            --clean \
-            --noconfirm \
-            main.py
+        shell: |
+          ${{ startsWith(matrix.os, 'windows') && 'pwsh' || 'bash' }}
       
       - name: List dist directory
         run: ls -la dist/
